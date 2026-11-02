@@ -260,3 +260,6 @@ a.juz { text-decoration: none; }
 .q-lbl small { opacity: .8; }
 .q-sheet input + input { margin-top: 0; }
 .q-sheet .sheet-card { max-height: 88dvh; overflow-y: auto; }
+.q-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 12px; }
+.q-chips button { padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.04); color: var(--ink); font-size: 14.5px; cursor: pointer; }
+.q-chips button.on { border-color: var(--gold); background: rgba(232,196,119,.14); color: var(--gold); font-weight: 600; }

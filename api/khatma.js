@@ -4,8 +4,14 @@
 
 const crypto = require('crypto');
 
-const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+// بيدوّر على مفاتيح Upstash أيًا كان الاسم اللي اتكتب في خانة الـprefix (KV أو khatma أو غيره)
+const envFind = (suffix) => {
+  const e = process.env;
+  const k = Object.keys(e).find((x) => x.toUpperCase().endsWith(suffix) && !x.toUpperCase().includes('READ_ONLY'));
+  return k ? e[k] : '';
+};
+const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || envFind('_REST_API_URL') || envFind('REDIS_REST_URL');
+const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || envFind('_REST_API_TOKEN') || envFind('REDIS_REST_TOKEN');
 
 const PARTS_KEY = 'jm:parts';   // حالة كل حزب في الختمة الحالية (h1..h60)
 const COUNT_KEY = 'jm:count';   // عدد الختمات اللي خلصت
@@ -101,7 +107,7 @@ module.exports = async (req, res) => {
 
     const body = await readBody(req);
     const action = body.action;
-    const name = clean(body.name, 30);
+    const name = clean(body.name, 30) || 'فاعل خير'; // الاسم اختياري
     const niyya = clean(body.niyya, 60);
     const id = String(body.id || '');
     // الأحزاب المطلوبة: حزب واحد، أو حزبين جزء واحد (١و٢، ٣و٤ ...)
@@ -111,7 +117,6 @@ module.exports = async (req, res) => {
     if (!['reserve', 'done', 'release'].includes(action) || !okList || !/^[a-z0-9]{16,40}$/.test(id)) {
       return send(res, 400, { ok: false, error: 'bad_request' });
     }
-    if ((action === 'reserve' || action === 'done') && !name) return send(res, 400, { ok: false, error: 'name_required' });
 
     const t = crypto.createHash('sha256').update(id).digest('hex').slice(0, 12);
     const now = Date.now();

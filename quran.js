@@ -52,7 +52,6 @@
   /* ---------- الختمة الجماعية (ختمة واحدة مستمرة للكل) ---------- */
   const grp = { state: null, err: null, loaded: false };
   const myName = () => ls.get('quran:name', '');
-  const myNiyya = () => ls.get('jm:niyya', '');
   const myTag = () => ls.get('jm:tag', '');
   const devId = () => {
     let id = ls.get('jm:id', '');
@@ -76,9 +75,9 @@
     if (view && view.type === 'read' && view.ctx === 'khatma-grp' && $('#qAfter') && ayahs.length) paintAfter();
     try { (UI().khatmaChanged || (() => {}))(); } catch {}
   };
-  const grpPost = async (action, parts) => {
+  const grpPost = async (action, parts, niyya = '') => {
     try {
-      const r = await fetch('/api/khatma', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, parts, name: myName(), niyya: action === 'release' ? '' : myNiyya(), id: devId() }) });
+      const r = await fetch('/api/khatma', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, parts, name: myName(), niyya: action === 'release' ? '' : niyya, id: devId() }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) {
         const msg = { not_configured: 'الختمة لسه ما اتفعّلتش على الموقع', rate: 'عملت تعديلات كتير ورا بعض، استنى شوية وجرّب تاني', taken: 'في حد حاجز الجزء ده، اختار حتة تانية', done_already: 'الحتة دي خلصت قراءتها، اختار حتة تانية', not_yours: 'الحجز ده مش من الموبايل ده، صاحبه بس اللي يقدر يلغيه' }[j.error] || 'في مشكلة في الاتصال، جرّب تاني';
@@ -111,25 +110,51 @@
   };
   const closeSheet = () => { if (sheetEl) sheetEl.classList.remove('show'); };
 
-  // الاسم والنية: الاسم لازم، والنية اختيارية
-  const askInfo = (then, opts = {}) => {
-    sheet(`<h3>${opts.title || 'اسمك ونيتك'}</h3><p class="sub">الاسم بيظهر للناس على الحتة اللي حجزتها</p>
-      <label class="q-lbl" for="qNameIn">اسمك</label>
-      <input id="qNameIn" maxlength="30" placeholder="مثلًا: أحمد" value="${esc(myName())}" autocomplete="nickname">
-      <label class="q-lbl" for="qNiyyaIn">نيتك <small>(اختياري)</small></label>
-      <input id="qNiyyaIn" maxlength="60" placeholder="مثلًا: على روح والدي — لشفاء أمي" value="${esc(myNiyya())}">
-      <p class="q-note" style="margin:6px 0 0">النية بتظهر للناس في «نوايا الختمة» عشان يدعوا لها.</p>
-      <div class="row"><button class="btn ok" type="button" id="qNameOk">${opts.ok || 'تمام'}</button></div>`, (c) => {
-      const inp = $('#qNameIn', c), niy = $('#qNiyyaIn', c);
-      setTimeout(() => (inp.value ? niy : inp).focus(), 50);
-      const ok = () => {
-        const v = inp.value.replace(/\s+/g, ' ').trim().slice(0, 30); if (!v) return inp.focus();
-        ls.set('quran:name', v); ls.set('jm:niyya', niy.value.replace(/\s+/g, ' ').trim().slice(0, 60));
-        closeSheet(); if (then) then(); else paintKhatma();
-      };
+  // الاسم (اختياري): لو مكتبش اسم، بيظهر «فاعل خير»
+  const askName = (then) => {
+    sheet(`<h3>اسمك</h3><p class="sub">بيظهر للناس على الحتة اللي حجزتها. لو سبته فاضي هيظهر «فاعل خير»</p>
+      <input id="qNameIn" maxlength="30" placeholder="مثلًا: أحمد (اختياري)" value="${esc(myName())}" autocomplete="nickname">
+      <div class="row"><button class="btn ok" type="button" id="qNameOk">تمام</button></div>`, (c) => {
+      const inp = $('#qNameIn', c); setTimeout(() => inp.focus(), 50);
+      const ok = () => { ls.set('quran:name', inp.value.replace(/\s+/g, ' ').trim().slice(0, 30)); closeSheet(); if (then) then(); else paintKhatma(); };
       $('#qNameOk', c).onclick = ok;
-      inp.onkeydown = (e) => { if (e.key === 'Enter') niy.focus(); };
-      niy.onkeydown = (e) => { if (e.key === 'Enter') ok(); };
+      inp.onkeydown = (e) => { if (e.key === 'Enter') ok(); };
+    });
+  };
+
+  // الحجز: الاسم والنية الاتنين اختياريين. النية: من غير / على روح حد / نية تانية
+  const reserveSheet = (parts, then) => {
+    sheet(`<h3>احجز ${partName(parts)}</h3><p class="sub">${parts.length === 2 ? juzLabel(parts[1] / 2) : hizbLabel(parts[0])}</p>
+      <label class="q-lbl" for="qNameIn">اسمك <small>(اختياري)</small></label>
+      <input id="qNameIn" maxlength="30" placeholder="لو سبته فاضي هيظهر «فاعل خير»" value="${esc(myName())}" autocomplete="nickname">
+      <p class="q-lbl" style="margin-top:4px">تحب تقرأه بنية معيّنة؟ <small>(اختياري)</small></p>
+      <div class="q-chips" role="radiogroup">
+        <button type="button" role="radio" data-n="none" class="on" aria-checked="true">من غير</button>
+        <button type="button" role="radio" data-n="rouh" aria-checked="false">على روح حد</button>
+        <button type="button" role="radio" data-n="other" aria-checked="false">نية تانية</button>
+      </div>
+      <div id="qNiyRouh" hidden><input id="qRouhIn" maxlength="48" placeholder="اسمه أو اسمها، مثلًا: الحاجة فاطمة"></div>
+      <div id="qNiyOther" hidden><input id="qOtherIn" maxlength="60" placeholder="مثلًا: لشفاء أمي — بنية التيسير"></div>
+      <p class="q-note" id="qNiyNote" style="margin:0" hidden>النية بتظهر للناس في «نوايا الختمة» عشان يدعوا لها.</p>
+      <div class="row" style="margin-top:14px"><button class="btn ok" type="button" id="qResOk">احجز</button></div>`, (c) => {
+      let mode = 'none';
+      const setMode = (m) => {
+        mode = m;
+        c.querySelectorAll('.q-chips button').forEach((x) => { const on = x.dataset.n === m; x.classList.toggle('on', on); x.setAttribute('aria-checked', String(on)); });
+        $('#qNiyRouh', c).hidden = m !== 'rouh'; $('#qNiyOther', c).hidden = m !== 'other'; $('#qNiyNote', c).hidden = m === 'none';
+        const f = m === 'rouh' ? $('#qRouhIn', c) : m === 'other' ? $('#qOtherIn', c) : null; if (f) setTimeout(() => f.focus(), 30);
+      };
+      c.querySelectorAll('.q-chips button').forEach((x) => x.onclick = () => setMode(x.dataset.n));
+      const ok = () => {
+        ls.set('quran:name', $('#qNameIn', c).value.replace(/\s+/g, ' ').trim().slice(0, 30));
+        const clean = (v) => v.replace(/\s+/g, ' ').trim();
+        let niyya = '';
+        if (mode === 'rouh') { const v = clean($('#qRouhIn', c).value).replace(/^على روح\s*/, ''); if (!v) return $('#qRouhIn', c).focus(); niyya = `على روح ${v}`; }
+        if (mode === 'other') { niyya = clean($('#qOtherIn', c).value); if (!niyya) return $('#qOtherIn', c).focus(); }
+        closeSheet(); then(niyya.slice(0, 60));
+      };
+      $('#qResOk', c).onclick = ok;
+      c.querySelectorAll('input').forEach((x) => x.onkeydown = (e) => { if (e.key === 'Enter') ok(); });
     });
   };
 
@@ -257,7 +282,7 @@
     const niyyat = [...new Set(P.filter((p) => p.s && p.niyya).map((p) => p.niyya))].slice(0, 30);
     const log = (st.log || []).filter((x) => x.a !== 'release').slice(0, 4);
     box.innerHTML = `<div class="q-sum">${ringSVG(d)}<div><h3>الختمة رقم ${AR(st.count + 1)}</h3><p>${AR(d)} حزب خلص${r ? ` · ${AR(r)} محجوز` : ''} · ${AR(60 - d - r)} متاح</p>${st.count ? `<span class="count">اتختم على الموقع ${timesTxt(st.count)} 🤍</span>` : ''}
-        <br><button class="q-name" type="button" id="qNameBtn">${me ? `بتقرأ باسم <b>${esc(me)}</b> — تغيير` : 'اكتب اسمك ونيتك'}</button></div></div>
+        <br><button class="q-name" type="button" id="qNameBtn">${me ? `بتقرأ باسم <b>${esc(me)}</b> — تغيير` : 'اكتب اسمك (اختياري)'}</button></div></div>
       ${mineBox}
       <div class="hz-grid">${Array.from({ length: 30 }, (_, i) => `<button type="button" class="hz-juz" data-j="${i + 1}" aria-label="الجزء ${AR(i + 1)}"><span class="jn">الجزء ${AR(i + 1)}</span><span class="hz-pair">${cell(2 * i + 1)}${cell(2 * i + 2)}</span></button>`).join('')}</div>
       <div class="q-legend"><span><i></i>متاح</span><span class="l-res"><i></i>حد بيقرأه</span><span class="l-done"><i></i>خلص</span></div>
@@ -265,7 +290,7 @@
       ${niyyat.length ? `<div class="q-niyyat"><h4>نوايا الختمة دي</h4><p class="q-note" style="margin:0 0 8px">ادعُ لأصحابها بظهر الغيب</p><ul>${niyyat.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
       ${log.length ? `<ul class="q-log">${log.map((x) => `<li>${x.a === 'khatma' ? '🤍 <b>تمّت ختمة كاملة</b>' : `<b>${esc(x.name)}</b> ${x.a === 'done' ? 'خلّص' : 'حجز'} ${partName(x.p || [])}`}</li>`).join('')}</ul>` : ''}`;
     box.querySelectorAll('.hz-juz').forEach((b) => b.onclick = () => juzSheet(+b.dataset.j));
-    const nb = $('#qNameBtn', box); if (nb) nb.onclick = () => askInfo();
+    const nb = $('#qNameBtn', box); if (nb) nb.onclick = () => askName();
   };
 
   const juzSheet = (n) => {
@@ -295,9 +320,9 @@
       c.querySelectorAll('a').forEach((x) => x.onclick = closeSheet);
       c.querySelectorAll('[data-act]').forEach((btn) => btn.onclick = () => {
         const act = btn.dataset.act, parts = btn.dataset.p.split(',').map(Number);
-        const go = async () => {
+        const go = async (niyya = '') => {
           btn.disabled = true;
-          const res = await grpPost(act, parts);
+          const res = await grpPost(act, parts, niyya);
           if (res && act === 'done') { const m = ls.get(posKey('grp'), {}); delete m[`j${n}`]; parts.forEach((h) => delete m[`h${h}`]); ls.set(posKey('grp'), m); }
           closeSheet(); paintKhatma();
           if (res && !res.completed) {
@@ -305,8 +330,7 @@
             const el = document.querySelector(`.hz-juz[data-j="${n}"]`); if (el) el.classList.add('pop');
           }
         };
-        if (act === 'reserve') askInfo(go, { title: `احجز ${partName(parts)}`, ok: 'احجز' });
-        else if (act === 'done' && !myName()) askInfo(go); else go();
+        if (act === 'reserve') reserveSheet(parts, go); else go();
       });
     });
   };
@@ -486,7 +510,7 @@
         if (r && !r.completed) toast(`جزاك الله خيرًا، علّمت ${partName(parts)} في الختمة`);
         paintAfter();
       };
-      if (!myName()) askInfo(go); else go();
+      go();
     };
   };
 
